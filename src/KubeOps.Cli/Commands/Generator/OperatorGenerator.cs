@@ -30,6 +30,8 @@ internal static class OperatorGenerator
                     Options.OutputPath,
                     Options.SolutionProjectRegex,
                     Options.TargetFramework,
+                    Options.AccessibleDockerImage,
+                    Options.AccessibleDockerTag,
                     Arguments.OperatorName,
                     Arguments.SolutionOrProjectFile,
                 };
@@ -46,6 +48,8 @@ internal static class OperatorGenerator
         var file = ctx.ParseResult.GetValueForArgument(Arguments.SolutionOrProjectFile);
         var outPath = ctx.ParseResult.GetValueForOption(Options.OutputPath);
         var format = ctx.ParseResult.GetValueForOption(Options.OutputFormat);
+        var dockerImage = ctx.ParseResult.GetValueForOption(Options.AccessibleDockerImage)!;
+        var dockerImageTag = ctx.ParseResult.GetValueForOption(Options.AccessibleDockerTag)!;
 
         var result = new ResultOutput(AnsiConsole.Console, format);
         AnsiConsole.Console.WriteLine("Generate operator resources.");
@@ -116,12 +120,12 @@ internal static class OperatorGenerator
             {
                 NamePrefix = $"{name}-",
                 Namespace = $"{name}-system",
-                CommonLabels = new Dictionary<string, string> { { "operator", name }, },
+                Labels = new KustomizationCommonLabels(new Dictionary<string, string> { { "operator", name }, }),
                 Resources = result.DefaultFormatFiles.ToList(),
                 Images =
                     new List<KustomizationImage>
                     {
-                        new() { Name = "operator", NewName = "accessible-docker-image", NewTag = "latest", },
+                        new() { Name = "operator", NewName = dockerImage, NewTag = dockerImageTag, },
                     },
                 ConfigMapGenerator = hasWebhooks
                     ? new List<KustomizationConfigMapGenerator>

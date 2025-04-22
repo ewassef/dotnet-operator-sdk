@@ -21,6 +21,18 @@ public static class Utilities
             .FirstOrDefault(a => a.AttributeType.Name == typeof(TAttribute).Name);
 
     /// <summary>
+    /// Load a custom attribute from a read-only-reflected field.
+    /// </summary>
+    /// <param name="field">The field.</param>
+    /// <typeparam name="TAttribute">The type of the attribute to load.</typeparam>
+    /// <returns>The custom attribute data if an attribute is found.</returns>
+    public static CustomAttributeData? GetCustomAttributeData<TAttribute>(this FieldInfo field)
+        where TAttribute : Attribute
+        => CustomAttributeData
+            .GetCustomAttributes(field)
+            .FirstOrDefault(a => a.AttributeType.Name == typeof(TAttribute).Name);
+
+    /// <summary>
     /// Load a custom attribute from a read-only-reflected property.
     /// </summary>
     /// <param name="prop">The property.</param>
@@ -42,6 +54,18 @@ public static class Utilities
         where TAttribute : Attribute
         => CustomAttributeData
             .GetCustomAttributes(type)
+            .Where(a => a.AttributeType.Name == typeof(TAttribute).Name);
+
+    /// <summary>
+    /// Load an enumerable of custom attributes from a read-only-reflected property.
+    /// </summary>
+    /// <param name="prop">The property.</param>
+    /// <typeparam name="TAttribute">The type of the attribute to load.</typeparam>
+    /// <returns>The custom attribute data list if any were found.</returns>
+    public static IEnumerable<CustomAttributeData> GetCustomAttributesData<TAttribute>(this PropertyInfo prop)
+        where TAttribute : Attribute
+        => CustomAttributeData
+            .GetCustomAttributes(prop)
             .Where(a => a.AttributeType.Name == typeof(TAttribute).Name);
 
     /// <summary>

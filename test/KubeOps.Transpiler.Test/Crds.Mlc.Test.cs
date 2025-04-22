@@ -11,7 +11,7 @@ using KubeOps.Abstractions.Entities.Attributes;
 
 namespace KubeOps.Transpiler.Test;
 
-public class CrdsMlcTest(MlcProvider provider) : TranspilerTestBase(provider)
+public partial class CrdsMlcTest(MlcProvider provider) : TranspilerTestBase(provider)
 {
     [Theory]
     [InlineData(typeof(StringTestEntity), "string", null, null)]
@@ -40,6 +40,7 @@ public class CrdsMlcTest(MlcProvider provider) : TranspilerTestBase(provider)
     [InlineData(typeof(SetIntEntity), "array", null, null)]
     [InlineData(typeof(InheritedEnumerableEntity), "array", null, null)]
     [InlineData(typeof(EnumEntity), "string", null, null)]
+    [InlineData(typeof(NamedEnumEntity), "string", null, null)]
     [InlineData(typeof(NullableEnumEntity), "string", null, true)]
     [InlineData(typeof(DictionaryEntity), "object", null, null)]
     [InlineData(typeof(EnumerableKeyPairsEntity), "object", null, null)]
@@ -341,6 +342,33 @@ public class CrdsMlcTest(MlcProvider provider) : TranspilerTestBase(provider)
     }
 
     [Fact]
+    public void Should_Set_Preserve_Unknown_Fields_On_Classes()
+    {
+        var crd = _mlc.Transpile(typeof(UnknownFieldsEntity));
+
+        var specProperties = crd.Spec.Versions.First().Schema.OpenAPIV3Schema.Properties["spec"];
+        specProperties.XKubernetesPreserveUnknownFields.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Should_Set_Preserve_Unknown_Fields_On_System_Object()
+    {
+        var crd = _mlc.Transpile(typeof(EntityWithSystemObject));
+
+        var specProperties = crd.Spec.Versions.First().Schema.OpenAPIV3Schema.Properties["spec"].Properties["obj"];
+        specProperties.XKubernetesPreserveUnknownFields.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Should_Set_Preserve_Unknown_Fields_On_ObjectLists()
+    {
+        var crd = _mlc.Transpile(typeof(UnknownFieldsListEntity));
+
+        var specProperties = (V1JSONSchemaProps)crd.Spec.Versions.First().Schema.OpenAPIV3Schema.Properties["spec"].Properties["propertyList"].Items;
+        specProperties.XKubernetesPreserveUnknownFields.Should().BeTrue();
+    }
+
+    [Fact]
     public void Should_Not_Set_Preserve_Unknown_Fields_On_Generic_Dictionaries()
     {
         var crd = _mlc.Transpile(typeof(DictionaryEntity));
@@ -473,6 +501,14 @@ public class CrdsMlcTest(MlcProvider provider) : TranspilerTestBase(provider)
 
         scopedCrd.Spec.Scope.Should().Be("Namespaced");
         clusterCrd.Spec.Scope.Should().Be("Cluster");
+    }
+
+    [Fact]
+    public void Should_Correctly_Get_Enum_Value_From_JsonStringEnumMemberNameAttribute()
+    {
+        var crd = _mlc.Transpile(typeof(NamedEnumEntity));
+        var specProperties = crd.Spec.Versions.First().Schema.OpenAPIV3Schema.Properties["property"];
+        specProperties.EnumProperty.Should().BeEquivalentTo(["enumValue1", "enumValue2"]);
     }
 
     #region Test Entity Classes
@@ -660,9 +696,51 @@ public class CrdsMlcTest(MlcProvider provider) : TranspilerTestBase(provider)
     }
 
     [KubernetesEntity(Group = "testing.dev", ApiVersion = "v1", Kind = "TestEntity")]
+    private class NamedEnumEntity : CustomKubernetesEntity
+    {
+        public TestSpecEnum Property { get; set; }
+
+        public enum TestSpecEnum
+        {
+            [JsonStringEnumMemberName("enumValue1")]
+            Value1,
+            [JsonStringEnumMemberName("enumValue2")]
+            Value2,
+        }
+    }
+
+    [KubernetesEntity(Group = "testing.dev", ApiVersion = "v1", Kind = "TestEntity")]
     private class SimpleDictionaryEntity : CustomKubernetesEntity
     {
         public IDictionary Property { get; set; } = null!;
+    }
+
+    [KubernetesEntity(Group = "testing.dev", ApiVersion = "v1", Kind = "TestEntity")]
+    private class UnknownFieldsEntity : CustomKubernetesEntity<UnknownFieldsEntity.EntitySpec>
+    {
+        [PreserveUnknownFields]
+        public class EntitySpec;
+    }
+
+    [KubernetesEntity(Group = "testing.dev", ApiVersion = "v1", Kind = "TestEntity")]
+    private class EntityWithSystemObject : CustomKubernetesEntity<EntityWithSystemObject.EntitySpec>
+    {
+        public class EntitySpec
+        {
+            public object Obj { get; set; } = null!;
+        }
+    }
+
+    [KubernetesEntity(Group = "testing.dev", ApiVersion = "v1", Kind = "TestEntity")]
+    private class UnknownFieldsListEntity : CustomKubernetesEntity<UnknownFieldsListEntity.EntitySpec>
+    {
+        public class EntitySpec
+        {
+            public List<ObjectList> PropertyList { get; set; } = null!;
+
+            [PreserveUnknownFields]
+            public class ObjectList;
+        }
     }
 
     [KubernetesEntity(Group = "testing.dev", ApiVersion = "v1", Kind = "TestEntity")]

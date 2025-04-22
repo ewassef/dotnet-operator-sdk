@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.ObjectModel;
 using System.Reflection;
+using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
 
 using k8s;
@@ -277,6 +278,18 @@ public static class Crds
             props.Properties = null;
         }
 
+        if (prop.GetCustomAttributesData<ValidationRuleAttribute>().ToArray() is { Length: > 0 } validations)
+        {
+            props.XKubernetesValidations = validations
+                .Select(validation => new V1ValidationRule(
+                    validation.GetCustomAttributeCtorArg<string>(context, 0),
+                    fieldPath: validation.GetCustomAttributeCtorArg<string?>(context, 1),
+                    message: validation.GetCustomAttributeCtorArg<string?>(context, 2),
+                    messageExpression: validation.GetCustomAttributeCtorArg<string?>(context, 3),
+                    reason: validation.GetCustomAttributeCtorArg<string?>(context, 4)))
+                .ToList();
+        }
+
         return props;
     }
 
@@ -285,6 +298,11 @@ public static class Crds
         if (type.FullName == "System.String")
         {
             return new V1JSONSchemaProps { Type = String };
+        }
+
+        if (type.FullName == "System.Object")
+        {
+            return new V1JSONSchemaProps { Type = Object, XKubernetesPreserveUnknownFields = true };
         }
 
         if (type.Name == typeof(Nullable<>).Name && type.GenericTypeArguments.Length == 1)
@@ -332,17 +350,73 @@ public static class Crds
             return context.MapObjectType(type);
         }
 
-        return type.BaseType?.FullName switch
+        static Type GetRootBaseType(Type type)
+        {
+            var current = type;
+            while (current.BaseType != null)
+            {
+                var baseName = current.BaseType.FullName;
+
+                if (baseName == "System.Object" ||
+                    baseName == "System.ValueType" ||
+                    baseName == "System.Enum")
+                {
+                    return current.BaseType; // This is the root base we're after
+                }
+
+                current = current.BaseType;
+            }
+
+            return current; // In case it's already System.Object
+        }
+
+        var rootBase = GetRootBaseType(type);
+
+        return rootBase.FullName switch
         {
             "System.Object" => context.MapObjectType(type),
             "System.ValueType" => context.MapValueType(type),
             "System.Enum" => new V1JSONSchemaProps
             {
                 Type = String,
-                EnumProperty = Enum.GetNames(type).Cast<object>().ToList(),
+                EnumProperty = GetEnumNames(context, type),
             },
             _ => throw InvalidType(type),
         };
+    }
+
+    private static IList<object> GetEnumNames(this MetadataLoadContext context, Type type)
+    {
+#if NET9_0_OR_GREATER
+        var attributeNameByFieldName = new Dictionary<string, string>();
+
+        foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (field.GetCustomAttributeData<JsonStringEnumMemberNameAttribute>() is { } jsonMemberNameAttribute &&
+                jsonMemberNameAttribute.GetCustomAttributeCtorArg<string>(context, 0) is { } jsonMemberNameAtributeName)
+            {
+                attributeNameByFieldName.Add(field.Name, jsonMemberNameAtributeName);
+            }
+        }
+
+        var enumNames = new List<object>();
+
+        foreach (var value in Enum.GetNames(type))
+        {
+            if (attributeNameByFieldName.TryGetValue(value, out var name))
+            {
+                enumNames.Add(name);
+            }
+            else
+            {
+                enumNames.Add(value);
+            }
+        }
+
+        return enumNames;
+#else
+        return Enum.GetNames(type);
+#endif
     }
 
     private static V1JSONSchemaProps MapObjectType(this MetadataLoadContext context, Type type)
@@ -387,6 +461,7 @@ public static class Crds
                         { Count: > 0 } p => p,
                         _ => null,
                     },
+                    XKubernetesPreserveUnknownFields = type.GetCustomAttributeData<PreserveUnknownFieldsAttribute>() != null ? true : null,
                 };
         }
     }
